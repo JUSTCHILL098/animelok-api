@@ -26,6 +26,10 @@ class Episode(BaseModel):
 class Server(BaseModel):
     server: str = "multi"
     type: str = "sub"
+    server_name: str | None = None
+    server_id: int | str | None = None
+    data_id: int | str | None = None
+    url: str | None = None
 
 
 class StreamResults(BaseModel):
@@ -35,6 +39,9 @@ class StreamResults(BaseModel):
     intro: dict[str, Any] = Field(default_factory=dict)
     outro: dict[str, Any] = Field(default_factory=dict)
     qualities: list[dict[str, Any]] = Field(default_factory=list)
+    server: str = "multi"
+    type: str = "sub"
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 class StreamResponse(BaseModel):

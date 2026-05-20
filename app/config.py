@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "Animelok Multi Scraper API"
+    app_name: str = "Animelok Server Scraper API"
     version: str = "1.0.0"
     base_url: str = Field(default="https://animelok.online", alias="BASE_URL")
     request_timeout: float = 20.0
@@ -28,4 +28,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

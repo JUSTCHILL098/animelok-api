@@ -155,26 +155,39 @@ class AnimelokScraper:
             return anime_id, int(ep_match.group(1))
         raise NotFoundError("episode_id must look like '<anime_id>__ep__<number>'")
 
-    async def servers(self, episode_id: str) -> list[dict[str, str]]:
-        """Return only the allowed multi server."""
-
-        self.split_episode_id(episode_id)
-        return [{"server": "multi", "type": "sub"}]
-
-    async def stream(self, episode_id: str) -> dict[str, Any]:
-        """Resolve only the real Multi/as-cdn HLS stream for an episode."""
+    async def servers(self, episode_id: str) -> list[dict[str, Any]]:
+        """Return every server exposed by Animelok for an episode."""
 
         anime_id, episode_number = self.split_episode_id(episode_id)
         episode_data = await self._fetch_episode_data(anime_id, episode_number)
         episode = episode_data.get("episode") or {}
-        multi = self._find_multi_server(episode)
-        player = await self._fetch_multi_player(multi["url"], self.url(f"/watch/{anime_id}?ep={episode_number}"))
+        return self._normalize_servers(episode.get("servers") or [])
+
+    async def stream(self, episode_id: str, server: str = "multi") -> dict[str, Any]:
+        """Resolve a stream for the requested Animelok server."""
+
+        anime_id, episode_number = self.split_episode_id(episode_id)
+        episode_data = await self._fetch_episode_data(anime_id, episode_number)
+        episode = episode_data.get("episode") or {}
+        selected_server = self._find_server(episode, server)
+        server_url = selected_server.get("url")
+        if not server_url:
+            raise StreamExtractionError(f"{selected_server.get('name') or server} server did not include an embed URL")
+
+        watch_url = self.url(f"/watch/{anime_id}?ep={episode_number}")
+        server_name = str(selected_server.get("name") or selected_server.get("tip") or server)
+        if self._is_multi_server(selected_server):
+            player = await self._fetch_multi_player(server_url, watch_url)
+        else:
+            player = await self._fetch_embed_player(server_url, watch_url)
         stream_url = player.get("videoSource") or player.get("securedLink")
         if not stream_url:
-            raise StreamExtractionError("Multi server did not return an HLS source")
+            stream_url = self._extract_m3u8_from_text(str(player))
+        if not stream_url:
+            raise StreamExtractionError(f"{server_name} server did not return an HLS source")
         playlist_headers = {
-            "Referer": multi["url"],
-            "Origin": self._origin(multi["url"]),
+            "Referer": server_url,
+            "Origin": self._origin(server_url),
             "User-Agent": http_client.default_headers()["User-Agent"],
         }
         playlist = await http_client.get_text(stream_url, headers=playlist_headers)
@@ -189,7 +202,8 @@ class AnimelokScraper:
             "intro": intro,
             "outro": outro,
             "qualities": parsed_playlist["qualities"],
-            "server": "multi",
+            "server": server_name,
+            "type": self._server_type(selected_server),
             "headers": playlist_headers,
         }
 
@@ -210,18 +224,77 @@ class AnimelokScraper:
             raise StreamExtractionError("Episode metadata was not returned")
         return data
 
-    @staticmethod
-    def _find_multi_server(episode: dict[str, Any]) -> dict[str, Any]:
-        """Find only the Multi server from Animelok episode metadata."""
+    def _normalize_servers(self, servers: Any) -> list[dict[str, Any]]:
+        """Normalize Animelok's raw server objects without hiding backups."""
 
-        for server in episode.get("servers") or []:
+        normalized: list[dict[str, Any]] = []
+        for index, server in enumerate(servers if isinstance(servers, list) else [], start=1):
             if not isinstance(server, dict):
                 continue
-            name = str(server.get("name") or "").lower()
-            tip = str(server.get("tip") or "").lower()
-            if name == "multi" or tip == "multi":
-                return server
-        raise StreamExtractionError("Multi server is not available for this episode")
+            name = str(server.get("name") or server.get("tip") or server.get("serverName") or f"server-{index}").strip()
+            server_url = str(server.get("url") or server.get("link") or server.get("embed") or "").strip()
+            normalized.append(
+                {
+                    "server": name.lower(),
+                    "server_name": name,
+                    "type": self._server_type(server),
+                    "server_id": server.get("id") or server.get("server_id") or index,
+                    "data_id": server.get("data_id") or server.get("dataId") or index,
+                    "url": urljoin(self.base_url, server_url) if server_url else None,
+                }
+            )
+        return normalized
+
+    def _find_server(self, episode: dict[str, Any], selected: str = "multi") -> dict[str, Any]:
+        """Find a server by name, tip, ID, or one-based position."""
+
+        raw_servers = [server for server in episode.get("servers") or [] if isinstance(server, dict)]
+        if not raw_servers:
+            raise StreamExtractionError("No servers are available for this episode")
+
+        wanted = str(selected or "multi").lower().strip()
+        for index, server in enumerate(raw_servers, start=1):
+            names = {
+                str(server.get("name") or "").lower().strip(),
+                str(server.get("tip") or "").lower().strip(),
+                str(server.get("serverName") or "").lower().strip(),
+            }
+            ids = {
+                str(server.get("id") or "").lower().strip(),
+                str(server.get("server_id") or "").lower().strip(),
+                str(server.get("data_id") or "").lower().strip(),
+                str(index),
+            }
+            if wanted in names or wanted in ids:
+                found = dict(server)
+                server_url = str(found.get("url") or found.get("link") or found.get("embed") or "").strip()
+                if server_url:
+                    found["url"] = urljoin(self.base_url, server_url)
+                return found
+
+        available = ", ".join(item["server_name"] for item in self._normalize_servers(raw_servers))
+        raise StreamExtractionError(f"Server '{selected}' is not available for this episode. Available servers: {available}")
+
+    @staticmethod
+    def _is_multi_server(server: dict[str, Any]) -> bool:
+        """Return whether a raw server object points at Animelok's Multi player."""
+
+        name = str(server.get("name") or "").lower()
+        tip = str(server.get("tip") or "").lower()
+        url = str(server.get("url") or "").lower()
+        return name == "multi" or tip == "multi" or "as-cdn" in url
+
+    @staticmethod
+    def _server_type(server: dict[str, Any]) -> str:
+        """Infer the playback language bucket for compatibility responses."""
+
+        explicit = server.get("type") or server.get("category") or server.get("lang")
+        value = str(explicit or server.get("name") or server.get("tip") or "").lower()
+        if "dub" in value:
+            return "dub"
+        if "raw" in value:
+            return "raw"
+        return "sub"
 
     async def _fetch_multi_player(self, server_url: str, watch_url: str) -> dict[str, Any]:
         """Resolve an as-cdn Multi page to its signed HLS URL."""
@@ -245,6 +318,16 @@ class AnimelokScraper:
         if not isinstance(data, dict):
             raise StreamExtractionError("Invalid Multi player response")
         return data
+
+    async def _fetch_embed_player(self, server_url: str, watch_url: str) -> dict[str, Any]:
+        """Resolve a non-Multi embed page when it exposes an HLS URL directly."""
+
+        html = await http_client.get_text(server_url, headers={"Referer": watch_url})
+        stream_url = self._extract_m3u8_from_text(html)
+        if not stream_url:
+            decoded_candidates = [self._decode_base64(candidate) for candidate in re.findall(r"['\"]([A-Za-z0-9+/=]{40,})['\"]", html)]
+            stream_url = next((self._extract_m3u8_from_text(item or "") for item in decoded_candidates if item), None)
+        return {"videoSource": stream_url} if stream_url else {}
 
     @staticmethod
     def _normalize_tracks(tracks: Any) -> list[dict[str, Any]]:

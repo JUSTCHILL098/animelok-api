@@ -1,6 +1,6 @@
 # Animelok AniList API
 
-FastAPI anime API that uses AniList IDs and AniList metadata publicly while mapping internally to Animelok for episodes, servers, subtitles, intro/outro timestamps, and Multi HLS stream extraction.
+FastAPI anime API that uses AniList IDs and AniList metadata publicly while mapping internally to Animelok for episodes, full server discovery, subtitles, intro/outro timestamps, and HLS stream extraction.
 
 ## Local Run
 
@@ -21,13 +21,14 @@ http://127.0.0.1:8000/docs
 GET /api/search?q=Solo%20Leveling
 GET /api/info/151807
 GET /api/episodes/151807
+GET /api/servers/151807?ep=1
 GET /api/stream/151807?ep=1
 GET /api/stream?id=151807&ep=1&server=multi&type=sub
 ```
 
 ## Stream Features
 
-The stream endpoint extracts the Animelok Multi HLS source and parses the master playlist for:
+The servers endpoint returns every server Animelok exposes for the episode. The stream endpoint defaults to `multi`, but accepts `server=<name-or-id>` and parses the selected HLS master playlist for:
 
 - `EXT-X-STREAM-INF` variants and quality metadata
 - `EXT-X-MEDIA:TYPE=AUDIO` alternate audio tracks

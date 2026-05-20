@@ -82,13 +82,13 @@ class AnimeService:
             for episode in episodes
         ]
 
-    async def servers(self, episode_id: str) -> list[dict[str, str]]:
+    async def servers(self, episode_id: str) -> list[dict[str, Any]]:
         provider_episode_id = await self._provider_episode_id(episode_id)
         return await self.scraper.servers(provider_episode_id)
 
-    async def stream(self, episode_id: str) -> dict:
+    async def stream(self, episode_id: str, server: str = "multi") -> dict:
         provider_episode_id = await self._provider_episode_id(episode_id)
-        return await self.scraper.stream(provider_episode_id)
+        return await self.scraper.stream(provider_episode_id, server=server)
 
     def episode_id_from_query(self, raw_id: str, ep: int | None = None) -> str:
         parsed = urlparse(raw_id)

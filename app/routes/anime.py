@@ -149,8 +149,8 @@ async def episodes_hianime(anime_id: str) -> dict:
 
 
 @router.get("/servers/{episode_id}", response_model=list[Server])
-async def servers(episode_id: str, ep: int | None = Query(default=None)) -> list[dict[str, str]]:
-    """Return only the multi server."""
+async def servers(episode_id: str, ep: int | None = Query(default=None)) -> list[dict]:
+    """Return every server exposed by Animelok for an episode."""
 
     if ep is not None:
         episode_id = anime_service.episode_id_from_query(episode_id, ep)
@@ -159,11 +159,24 @@ async def servers(episode_id: str, ep: int | None = Query(default=None)) -> list
 
 @router.get("/servers/{anime_id}/hianime")
 async def servers_hianime(anime_id: str, ep: int = Query(default=1)) -> dict:
-    """HiAnime-style servers endpoint; only Multi is exposed."""
+    """HiAnime-style servers endpoint backed by Animelok's full server list."""
 
     episode_id = anime_service.episode_id_from_query(anime_id, ep)
-    await anime_service.servers(episode_id)
-    return {"success": True, "results": [{"type": "sub", "data_id": ep, "server_id": 1, "serverName": "multi"}]}
+    servers = await anime_service.servers(episode_id)
+    return {
+        "success": True,
+        "results": [
+            {
+                "type": item.get("type", "sub"),
+                "data_id": item.get("data_id") or index,
+                "server_id": item.get("server_id") or index,
+                "serverName": item.get("server_name") or item.get("server"),
+                "server_name": item.get("server_name") or item.get("server"),
+                "url": item.get("url"),
+            }
+            for index, item in enumerate(servers, start=1)
+        ],
+    }
 
 
 @router.get("/stream")
@@ -173,30 +186,39 @@ async def stream_query(
     type: str = Query("sub"),
     ep: int | None = Query(default=None),
 ) -> dict:
-    """HiAnime-style stream endpoint; only server=multi is accepted."""
+    """HiAnime-style stream endpoint."""
 
-    if server.lower() != "multi":
-        raise HTTPException(status_code=400, detail="Only the multi server is supported")
     episode_id = anime_service.episode_id_from_query(id, ep)
-    results = await anime_service.stream(episode_id)
+    results = await anime_service.stream(episode_id, server=server)
+    servers = await anime_service.servers(episode_id)
     return {
         "success": True,
         "results": {
             "streamingLink": [
                 {
                     "id": 1,
-                    "type": "sub",
+                    "type": results.get("type", type),
                     "link": {"file": results["stream_url"], "type": "hls"},
                     "tracks": results["subtitles"],
                     "audio_tracks": results.get("audio_tracks", []),
                     "intro": results["intro"],
                     "outro": results["outro"],
-                    "server": "multi",
+                    "server": results.get("server", server),
                     "qualities": results["qualities"],
                     "headers": results.get("headers", {}),
                 }
             ],
-            "servers": [{"type": "sub", "data_id": 1, "server_id": 1, "server_name": "multi"}],
+            "servers": [
+                {
+                    "type": item.get("type", "sub"),
+                    "data_id": item.get("data_id") or index,
+                    "server_id": item.get("server_id") or index,
+                    "server_name": item.get("server_name") or item.get("server"),
+                    "serverName": item.get("server_name") or item.get("server"),
+                    "url": item.get("url"),
+                }
+                for index, item in enumerate(servers, start=1)
+            ],
         },
     }
 
@@ -214,12 +236,16 @@ async def stream_fallback(
 
 
 @router.get("/stream/{episode_id}", response_model=StreamResponse)
-async def stream(episode_id: str, ep: int | None = Query(default=None)) -> dict:
-    """Extract the multi server stream."""
+async def stream(
+    episode_id: str,
+    ep: int | None = Query(default=None),
+    server: str = Query("multi"),
+) -> dict:
+    """Extract a server stream."""
 
     if ep is not None:
         episode_id = anime_service.episode_id_from_query(episode_id, ep)
-    results = await anime_service.stream(episode_id)
+    results = await anime_service.stream(episode_id, server=server)
     return StreamResponse(results=StreamResults(**results)).model_dump()
 
 

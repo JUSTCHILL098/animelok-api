@@ -37,7 +37,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.version,
-    description="Fast async anime scraping API. Streaming endpoints only expose the multi server.",
+    description="Fast async anime scraping API with AniList mapping, Animelok server discovery, and HLS extraction.",
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -219,14 +219,14 @@ async def html_docs() -> str:
         </div>
         <div class="card">
           <h3><span class="method">GET</span><code>/api/stream/151807?ep=1</code></h3>
-          <p>Extracts the Animelok Multi HLS source for the AniList anime and episode number.</p>
+          <p>Extracts the selected Animelok HLS source for the AniList anime and episode number. Defaults to Multi.</p>
         </div>
       </div>
     </section>
 
     <section>
       <h2>Stream Response</h2>
-      <p>The stream endpoint parses the HLS master playlist and includes all alternate audio tracks from <code>#EXT-X-MEDIA:TYPE=AUDIO</code>.</p>
+      <p>The servers endpoint returns every Animelok server for an episode. The stream endpoint defaults to <code>multi</code>, accepts <code>server=&lt;name-or-id&gt;</code>, and parses the HLS master playlist including alternate audio tracks from <code>#EXT-X-MEDIA:TYPE=AUDIO</code>.</p>
       <pre>{
   "success": true,
   "results": {
@@ -268,7 +268,7 @@ async def html_docs() -> str:
     <section>
       <h2>Compatibility</h2>
       <ul>
-        <li><code>/api/stream?id=151807&amp;ep=1&amp;server=multi&amp;type=sub</code> is still supported.</li>
+        <li><code>/api/stream?id=151807&amp;ep=1&amp;server=multi&amp;type=sub</code> is still supported, and <code>server</code> may be another available server name or ID.</li>
         <li>Provider IDs are used internally only for mapping and extraction.</li>
         <li><code>/openapi.json</code> remains available for tools, but this page replaces Swagger UI.</li>
       </ul>
