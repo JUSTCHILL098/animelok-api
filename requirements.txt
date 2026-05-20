@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+httpx
+beautifulsoup4
+selectolax
+lxml
+orjson
+python-multipart
+cachetools
+fake-useragent
+aiofiles
+pydantic-settings
